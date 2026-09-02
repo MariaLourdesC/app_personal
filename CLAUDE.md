@@ -30,11 +30,16 @@ Layering: `lib/logic/` (pure Dart, no `package:flutter` imports) → `lib/reposi
 
 ## Status (as of this file's last update)
 
-**C3 (Capacidad y Ventanas) — in progress.**
-- Done: `lib/logic/capacity/buffer_calculator.dart` (`calculateBuffer`, D1 tiered buffer) and `task_weight_calculator.dart` (`calculateTaskWeight`), both tested against CP-04 and TB-01 (see `test/logic/capacity/`).
-- Skipped on purpose: a dedicated "C3 input" wrapper class — the functions ended up taking `Duration` params directly, so a wrapper would have been speculative. Revisit only if a real need shows up.
-- Next: `TimeWindow` (start/end `DateTime`, `lib/logic/capacity/time_window.dart`) — proposed but not yet approved: whether the `end.isAfter(start)` invariant should be a debug-only `assert` or a real runtime check, and whether to include a `duration` getter now or wait until piece 5 (fit check) needs it.
-- Not started: fit-check (peso vs. ventana dada la ancla), and the "no hay ventana disponible" case (CP-07).
+**C3 (Capacidad y Ventanas) — done, closed at 4 pieces.** Next component is **C4**.
+
+Built, all tested (see `test/logic/capacity/`):
+- `lib/logic/capacity/buffer_calculator.dart` — `calculateBuffer`, D1 tiered buffer (CP-04 edge cases).
+- `lib/logic/capacity/task_weight_calculator.dart` — `calculateTaskWeight` (duration + prepTime/travelTime, both always zero in Phase 1 + buffer), tested against TB-01.
+- `lib/logic/capacity/time_window.dart` — `TimeWindow` (start/end `DateTime`, `duration` getter). Constructor **throws `ArgumentError`** (real runtime check, not a debug-only `assert`) if `end` isn't strictly after `start` — chosen deliberately because a window's start/end will eventually come from real-world data (device clock, calendar), not just trusted hand-written code, and a silently-corrupt window (negative duration) could produce wrong "cabe/no cabe" decisions downstream, which matters given C3 protects hard constraints (§34/§35).
+- `lib/logic/capacity/fit_checker.dart` — `taskFits({taskWeight, window})`, boolean only (`taskWeight <= window.duration`). Deliberately does **not** implement the PRD §8 "ventana posible" vs "ventana segura" distinction as two separate outputs — no CP test case and no consumer (C4/C5) in Fase 1 docs reads a separate "posible" signal; D1's buffer is Fase 1's actual answer to §8's safety concern. Cheap to add a sibling function later if a real need shows up.
+- Skipped on purpose (piece 3 in the original plan): a dedicated "C3 input" wrapper class — the functions ended up taking `Duration`/`TimeWindow` params directly, so a wrapper would have been speculative.
+
+**Open question that MUST be resolved when building C4 — do not skip:** CP-07 ("no hay ninguna ventana disponible") requires two things beyond what C3 provides: (1) a reason string — trivial, C3 already gives this via `taskFits` returning `false`; (2) **"se muestra la siguiente ventana en la que sí habrá espacio"** — this needs enumerating multiple windows across the rest of the day, which needs knowledge of fixed calendar events/commitments (e.g. "recoger a Sami a las 15:40" from the CP-07/CP-03 fixtures). **No entity for this exists anywhere in the PRD's data model (§104–124).** This is a real gap, not a deferred nice-to-have — C4 cannot fully satisfy CP-07 without either (a) a new data entity for fixed events, defined with the user (Crítico decision, do not invent it), or (b) some other resolution she chooses. Surface this explicitly at the start of C4's design conversation.
 
 ## Decisions made that aren't fully spelled out in the docs
 
