@@ -1,5 +1,4 @@
-/// Niveles de consecuencia de no hacer una tarea (§5 del PRD).
-enum ConsequenceLevel { alta, media, baja }
+import '../../models/consequence_level.dart';
 
 /// Entrada de C4: los campos de una tarea que el motor de prioridad
 /// realmente necesita para decidir. No es el `Task` completo de §106

@@ -1,3 +1,4 @@
+import '../../models/consequence_level.dart';
 import 'priority_candidate.dart';
 
 /// Los factores que ganaron, como datos — no como texto. Armar la frase en

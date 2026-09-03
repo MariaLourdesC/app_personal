@@ -1,3 +1,4 @@
+import '../../models/consequence_level.dart';
 import 'priority_candidate.dart';
 
 /// Elige la candidata ganadora entre las que ya caben en la ventana (§4 del PRD):

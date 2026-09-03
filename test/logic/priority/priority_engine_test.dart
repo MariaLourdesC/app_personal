@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:app_personal/logic/capacity/time_window.dart';
+import 'package:app_personal/models/consequence_level.dart';
 import 'package:app_personal/logic/priority/priority_candidate.dart';
 import 'package:app_personal/logic/priority/priority_engine.dart';
 
