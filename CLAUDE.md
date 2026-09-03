@@ -9,7 +9,7 @@ Full spec lives in `docs/`: `Product_Requirements_v1.md` (PRD, sections numbered
 The user is QA automation background (Python/Java), new to Dart/Flutter, building this to maintain for years — she wants to understand every piece, not receive a finished app. Per component:
 
 1. Explain in prose what will be built, what files, how it connects — before writing code. Wait for approval.
-2. Write code in small chunks (one class/function at a time). Pause after each.
+2. Write code in small chunks (one class/function at a time). Pause after each. **If a prerequisite or side-change turns up mid-piece (e.g. "to build X I first need to change Y that we already built"), stop and present that as its own explicit step — don't just mention it in passing and keep going. She was explicit about this after it happened once during C4.**
 3. Explain Dart-specific decisions a Java dev wouldn't find obvious (null safety, `final` vs `const`, named params, top-level functions, library-private `_name`, operator overloading). Skip what's already familiar from Java.
 4. End each chunk with a concrete comprehension question. Don't proceed until answered.
 5. Don't move to the next component until the current one's relevant test cases pass.
@@ -30,7 +30,7 @@ Layering: `lib/logic/` (pure Dart, no `package:flutter` imports) → `lib/reposi
 
 ## Status (as of this file's last update)
 
-**C3 (Capacidad y Ventanas) — done, closed at 4 pieces.** Next component is **C4**.
+**C3 (Capacidad y Ventanas) — done, closed at 4 pieces.**
 
 Built, all tested (see `test/logic/capacity/`):
 - `lib/logic/capacity/buffer_calculator.dart` — `calculateBuffer`, D1 tiered buffer (CP-04 edge cases).
@@ -39,7 +39,25 @@ Built, all tested (see `test/logic/capacity/`):
 - `lib/logic/capacity/fit_checker.dart` — `taskFits({taskWeight, window})`, boolean only (`taskWeight <= window.duration`). Deliberately does **not** implement the PRD §8 "ventana posible" vs "ventana segura" distinction as two separate outputs — no CP test case and no consumer (C4/C5) in Fase 1 docs reads a separate "posible" signal; D1's buffer is Fase 1's actual answer to §8's safety concern. Cheap to add a sibling function later if a real need shows up.
 - Skipped on purpose (piece 3 in the original plan): a dedicated "C3 input" wrapper class — the functions ended up taking `Duration`/`TimeWindow` params directly, so a wrapper would have been speculative.
 
-**Open question that MUST be resolved when building C4 — do not skip:** CP-07 ("no hay ninguna ventana disponible") requires two things beyond what C3 provides: (1) a reason string — trivial, C3 already gives this via `taskFits` returning `false`; (2) **"se muestra la siguiente ventana en la que sí habrá espacio"** — this needs enumerating multiple windows across the rest of the day, which needs knowledge of fixed calendar events/commitments (e.g. "recoger a Sami a las 15:40" from the CP-07/CP-03 fixtures). **No entity for this exists anywhere in the PRD's data model (§104–124).** This is a real gap, not a deferred nice-to-have — C4 cannot fully satisfy CP-07 without either (a) a new data entity for fixed events, defined with the user (Crítico decision, do not invent it), or (b) some other resolution she chooses. Surface this explicitly at the start of C4's design conversation.
+**C4 (Motor de prioridad) — done, closed at 6 pieces.** Next component is **C2**.
+
+Built, all tested (see `test/logic/priority/`):
+- `lib/logic/priority/priority_candidate.dart` — `ConsequenceLevel` enum + `PriorityCandidate` (id, nullable consequenceLevel, estimatedDuration, nullable deadline). Lightweight input scoped to C4, not the full `Task` (§106) — same reasoning as C3's skipped wrapper, except here a class was justified since C4 compares several fields at once (TB-01 exercises 4 of them). `consequenceLevel` is nullable to represent D2 "not declared yet" (needed for CP-09); `null` is a real distinct state, not a stand-in for a default.
+- `lib/logic/priority/window_filter.dart` — `candidatesThatFit`, reuses C3's `calculateTaskWeight`/`taskFits`, tested against TB-01 (T2 excluded, T1/T3/T4/T5 fit).
+- `lib/logic/priority/priority_ranking.dart` — `pickWinner`: ranks by consequence tier (explicit `switch`-based rank, deliberately not `.index`) then deadline (has > hasn't; nearer beats farther). Two explicit, tested tie/edge rules, not accidents of statement order:
+  - Same tier, neither has a deadline → first candidate in the input list wins.
+  - **A default-assumed consequence (D2, `null` → treated as "media") never outranks a real, declared lower value** — e.g. an undeclared task (defaulted to "media") loses to a real "baja" task, even though "media" would normally beat "baja". An assumption isn't allowed to out-compete confirmed data. This was a deliberate correction after the user caught the counter-intuitive default behavior — see `_compareConsequence` in the file for the exact mechanism.
+- `lib/logic/priority/reason.dart` — `Reason` (structured facts: resolved consequenceLevel, hasDeadline, deadline) + `reasonFor(candidate)`. Deliberately **not** a natural-language string — C4 is pure logic and shouldn't own Spanish phrasing for CP-08; that's C5's job when it's built ("la pantalla no decide, solo muestra").
+- `lib/logic/priority/decision_result.dart` — `DecisionResult` (candidate + reason + assumed), the contract from `Arquitectura_Fase_1.md`, using `PriorityCandidate` instead of `Task` for the same reason as above.
+- `lib/logic/priority/priority_engine.dart` — `decide(candidates, window)`, the public entry point chaining all of the above. Covers CP-03 (via TB-01), CP-09, and CP-06's literal fixture.
+- `test/logic/priority/cp06_test.dart` — confirms CP-06's literal scenario (TX beats TY) already passes with plain ranking alone, **but see the open question below**: this doesn't actually exercise §23's real protective mechanism.
+
+**Open question, still unresolved — surface it again before C2/C5 need real windows/scheduling:** both CP-07 and CP-06/§23's *real* mechanism are blocked by the same missing data-model piece.
+
+- CP-07 ("no hay ninguna ventana disponible") needs: (1) a reason string — trivial, already available via `taskFits` returning `false`; (2) **"se muestra la siguiente ventana en la que sí habrá espacio"** — needs enumerating multiple windows across the rest of the day.
+- CP-06/§23 ("si la #1 no cabe, elegir la que sí quepa sin destruir la última ventana segura de una tarea superior") — the literal CP-06 fixture passes with plain consequence-ranking alone (TX beats TY on consequence, no special logic needed), so it does **not** actually test §23's real mechanism. That mechanism only matters when a *lower*-ranked candidate would otherwise win but doing so would remove a *higher*-ranked candidate's only remaining window today — detecting that requires knowing whether the higher candidate has another window later today.
+
+Both needs boil down to the same thing: knowledge of the day's remaining free windows, which requires knowing fixed calendar events/commitments (e.g. "recoger a Sami a las 15:40" from the CP-03/CP-07 fixtures). **No entity for this exists anywhere in the PRD's data model (§104–124).** This is a real gap, not a deferred nice-to-have. Resolving it needs either (a) a new data entity for fixed events, defined with the user (Crítico decision, do not invent it), or (b) some other resolution she chooses.
 
 ## Decisions made that aren't fully spelled out in the docs
 
