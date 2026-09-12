@@ -4,7 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../logic/capacity/current_window.dart';
+import '../logic/capacity/time_window.dart';
 import '../logic/priority/decision_result.dart';
+import '../logic/priority/next_window_finder.dart';
 import '../logic/priority/priority_engine.dart';
 import '../logic/priority/task_adapter.dart';
 import '../models/task.dart';
@@ -44,6 +46,8 @@ class _NowScreenState extends State<NowScreen> {
   bool _loading = true;
   DecisionResult? _result;
   Task? _currentTask;
+  CurrentBlock _block = CurrentBlock.disponible;
+  TimeWindow? _nextWindow;
   DateTime? _taskStart;
   Duration _elapsed = Duration.zero;
   Timer? _ticker;
@@ -68,24 +72,50 @@ class _NowScreenState extends State<NowScreen> {
     final user = await widget.configRepository.getUser();
 
     DecisionResult? result;
+    var block = CurrentBlock.disponible;
+    TimeWindow? nextWindow;
+
     if (user != null) {
+      final now = DateTime.now();
+      final windowResult = currentWindow(
+        now: now,
+        fixedEvents: events,
+        user: user,
+      );
+      block = windowResult.block;
+      final window = windowResult.window;
+
       final ready = tasksReadyForPriority(tasks);
-      if (ready.isNotEmpty) {
-        final candidates = ready.map(priorityCandidateFromTask).toList();
-        final window = currentWindow(
-          now: DateTime.now(),
-          fixedEvents: events,
-          user: user,
-        );
+      final candidates = ready.map(priorityCandidateFromTask).toList();
+
+      // Todas las ventanas del día; la primera es la actual, el resto son
+      // las posteriores que §23 necesita para su protección.
+      final windows = remainingWindows(
+        now: now,
+        fixedEvents: events,
+        user: user,
+      );
+      final laterWindows = windows.isEmpty
+          ? <TimeWindow>[]
+          : windows.sublist(1);
+
+      if (window != null && candidates.isNotEmpty) {
         try {
-          result = decide(candidates, window);
-        } catch (_) {
-          // Ninguna candidata cabe (CP-07) o ya pasó la hora de dormir sin
-          // eventos que lo marquen (CP-11) — no hay tarea para proponer.
-          // La experiencia completa de CP-07 (motivo + siguiente ventana)
-          // sigue bloqueada por el hueco de eventos fijos, ver CLAUDE.md.
+          result = decide(candidates, window, laterWindows: laterWindows);
+        } on StateError {
+          // Ninguna candidata cabe en esta ventana (CP-07): buscamos en
+          // cuál de las siguientes sí habría espacio, para poder decirlo.
           result = null;
+          nextWindow = nextWindowWithSpace(
+            candidates: candidates,
+            windows: laterWindows,
+          );
         }
+      } else if (candidates.isNotEmpty) {
+        nextWindow = nextWindowWithSpace(
+          candidates: candidates,
+          windows: windows,
+        );
       }
     }
 
@@ -98,6 +128,8 @@ class _NowScreenState extends State<NowScreen> {
     setState(() {
       _result = result;
       _currentTask = winnerTask;
+      _block = block;
+      _nextWindow = nextWindow;
       _loading = false;
       _taskStart = start;
       _elapsed = Duration.zero;
@@ -168,7 +200,7 @@ class _NowScreenState extends State<NowScreen> {
       ),
     );
     _quickCaptureController.clear();
-    // A propósito, no llamo a _load() acá: CP-12 exige que la tarea en
+    // A propósito, no llamo a _load() aquí: CP-12 exige que la tarea en
     // curso y su timer no se interrumpan al usar la caja rápida.
     if (mounted) {
       ScaffoldMessenger.of(
@@ -242,16 +274,7 @@ class _NowScreenState extends State<NowScreen> {
     final result = _result;
     final task = _currentTask;
     if (result == null || task == null) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Text(
-            'No hay ninguna tarea disponible ahora mismo.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: _textMuted, fontSize: 16),
-          ),
-        ),
-      );
+      return _BlockedState(block: _block, nextWindow: _nextWindow);
     }
 
     final estimated = result.candidate.estimatedDuration;
@@ -417,6 +440,102 @@ class _NowScreenState extends State<NowScreen> {
       ],
     );
   }
+}
+
+/// CP-11 exige que los bloques duros expliquen el motivo, no que aparezca
+/// una pantalla vacía. El tiempo personal además se muestra como el bloque
+/// actual (decisión de producto de la usuaria), no como una ausencia.
+class _BlockedState extends StatelessWidget {
+  const _BlockedState({required this.block, this.nextWindow});
+
+  final CurrentBlock block;
+
+  /// CP-07: "se muestra la siguiente ventana en la que sí habrá espacio".
+  final TimeWindow? nextWindow;
+
+  @override
+  Widget build(BuildContext context) {
+    final (emoji, title, subtitle) = switch (block) {
+      CurrentBlock.tiempoPersonal => (
+        '🌿',
+        'Tu tiempo personal',
+        'Este rato es tuyo. La app no propone nada aquí.',
+      ),
+      CurrentBlock.sueno => (
+        '🌙',
+        'Hora de dormir',
+        'El sueño es un bloque no negociable.',
+      ),
+      CurrentBlock.eventoFijo => (
+        '📌',
+        'Estás en un compromiso',
+        'Hay un evento fijo en curso ahora mismo.',
+      ),
+      CurrentBlock.disponible => (
+        '✨',
+        'Nada por ahora',
+        'No hay ninguna tarea que quepa en el hueco disponible.',
+      ),
+    };
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(emoji, style: const TextStyle(fontSize: 52)),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.baloo2(
+                fontSize: 26,
+                fontWeight: FontWeight.w800,
+                color: _textDark,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 15, color: _textMuted),
+            ),
+            if (nextWindow != null) ...[
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Text(
+                  'Siguiente hueco con espacio: '
+                  '${_formatHour(nextWindow!.start)} – '
+                  '${_formatHour(nextWindow!.end)}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: _accentPurple,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _formatHour(DateTime t) {
+  final h = t.hour.toString().padLeft(2, '0');
+  final m = t.minute.toString().padLeft(2, '0');
+  return '$h:$m';
 }
 
 String _formatElapsed(Duration d) {

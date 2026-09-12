@@ -2,7 +2,7 @@ import '../models/consequence_level.dart';
 import '../logic/priority/reason.dart';
 
 /// Arma las frases de "¿Por qué ahora?" (§40, CP-08) a partir de los datos
-/// estructurados de `Reason` — acá vive la redacción en español, no en C4
+/// estructurados de `Reason` — aquí vive la redacción en español, no en C4
 /// ("la pantalla no decide, solo muestra", pero mostrar sí implica redactar).
 ///
 /// Si `consequenceLevel` fue asumida (D2, CP-09), lo marca explícitamente
