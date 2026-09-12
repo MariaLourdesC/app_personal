@@ -37,4 +37,40 @@ Future<void> createSchema(Database db) async {
   for (final pillar in defaultPillars) {
     await db.insert('pillars', pillarToMap(pillar));
   }
+
+  await db.execute('''
+    CREATE TABLE task_completions (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      start_time INTEGER NOT NULL,
+      end_time INTEGER NOT NULL,
+      actual_duration_minutes INTEGER NOT NULL,
+      estimated_duration_minutes INTEGER,
+      interruptions INTEGER NOT NULL,
+      distractions INTEGER NOT NULL
+    )
+  ''');
+
+  await db.execute('''
+    CREATE TABLE fixed_events (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      start_time INTEGER NOT NULL,
+      end_time INTEGER NOT NULL
+    )
+  ''');
+
+  await db.execute('''
+    CREATE TABLE app_user (
+      id TEXT PRIMARY KEY,
+      timezone TEXT NOT NULL,
+      sleep_target_minutes INTEGER NOT NULL,
+      wake_target_minutes INTEGER NOT NULL,
+      focus_block_minutes INTEGER NOT NULL,
+      break_minutes INTEGER NOT NULL,
+      protected_personal_minutes INTEGER NOT NULL,
+      default_buffer_minutes INTEGER NOT NULL,
+      current_energy_state TEXT
+    )
+  ''');
 }
