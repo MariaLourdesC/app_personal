@@ -95,6 +95,20 @@ Built, all tested (see `test/logic/capture/`):
 
 **The bug worth remembering from C1:** the preview worked in every test but not in the browser. Cause: `mañana` typed on a real keyboard can arrive as **"n" + a combining tilde (U+0303)**, two characters, while the same word in a source file is the precomposed `ñ` (U+00F1) — so every test used the form that worked. Fixed by making `_normalize` drop combining marks and carry an **index map** back to the original text (the normalization now shortens the string, so raw offsets no longer line up on their own). `test/logic/capture/enye_decomposition_test.dart` locks both forms in. General lesson for this project: text typed by a human and text written in a test file are not the same bytes.
 
+## Next task: assembling the app (not started)
+
+All six components exist and 85 tests pass, but **the app has never run as one system**. `lib/main.dart` is still the "Hello World" placeholder; every screen has only been exercised in isolation against throwaway fake repositories. Fase 1's criterion ("con la app instalada vacía: escribo X y queda una tarea persistida...") describes an assembled app, so this is the real remaining work:
+
+- `lib/app_database.dart` — open SQLite for real (`openDatabase` with `createSchema` as `onCreate`, `version: 1`) and build the four repositories.
+- `main.dart` — wire those repositories into the screens and add navigation across the four (Capturar, Inbox, AHORA, Configuración). **Open on AHORA**: §17 is explicit — "La app muestra primero: AHORA: tarea #1. No abre con 25 pendientes."
+
+Two decisions were put to the user and are still unanswered — ask again before building:
+
+1. **Web vs mobile-only.** `sqflite` does not work on Flutter web (neither the plugin nor the `sqflite_common_ffi` used in tests). Since all visual testing so far has been in Chrome on Windows, assembling with the real database ends that. Either accept mobile-only (test on the iOS Simulator on her Mac) or add `sqflite_common_ffi_web` plus its worker/wasm install step.
+2. **First run with no `User`.** Without a saved `User`, `currentWindow` can't compute anything and AHORA says "no hay tarea disponible" forever. No doc describes an onboarding flow. Either route to `ConfigScreen` automatically when `getUser()` returns null, or leave it manual.
+
+She plans to continue this on her Mac (where Xcode and the iOS Simulator are available), which is also what makes option 1a viable.
+
 ## Decisions made that aren't fully spelled out in the docs
 
 - **Duration type:** durations are `Duration`, never raw `int` minutes — avoids unit ambiguity, matches Dart/Flutter convention.
